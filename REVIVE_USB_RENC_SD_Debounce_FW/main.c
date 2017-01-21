@@ -1,5 +1,7 @@
 // USB HID core
 /*
+ * RENC Debounce S/D ver 1.1 (2016/01/21)
+ *   スライダー/ダイヤル入力の安定性を向上させた。
  * RENC Debounce S/D ver 1.0 (2016/01/20)
  *   「REVIVE USB RENC Debounce ver 2.0」のレバー入力をスライダー/ダイヤル入力に置き換えた。
  */
@@ -127,7 +129,7 @@ void YourLowPriorityISRCode();
 
 /** VARIABLES ******************************************************/
 #pragma udata
-char c_version[]="SD1.0";
+char c_version[]="SD1.1";
 BYTE mouse_buffer[4];
 BYTE joystick_buffer[4];
 BYTE keyboard_buffer[8]; 
@@ -145,8 +147,12 @@ unsigned char button_pressing_count[NUM_OF_PINS][2];
 unsigned int renc_pre_r_code = 0;
 unsigned int renc_pre_result = 0;
 
-//スライダー/ダイヤル入力カウンタ（4回目のカウントで入力値を増やす）
-unsigned char slider_dial_ctrl_counter = 0;
+//スライダー/ダイヤル入力フラグ
+unsigned char flg_input_sd = 0;
+//スライダー/ダイヤル入力カウンタ閾値（0～3）
+const unsigned char SD_COUNTER_MAX = 3;
+//スライダー/ダイヤル入力カウンタ（MAXになったら入力値を増やす）
+unsigned char sd_counter = 0;
 
 char mouse_move_up;
 char mouse_move_down;
@@ -705,7 +711,7 @@ void ProcessIO(void)
 	char tmp;
 	unsigned char uc_temp;
 	BYTE tmp_check_count;
-	unsigned char tmp_slider_dial_count;
+	unsigned char tmp_sd_count;
 
     // User Application USB tasks
     if((USBDeviceState < CONFIGURED_STATE)||(USBSuspendControl==1)) return;
@@ -802,79 +808,19 @@ void ProcessIO(void)
 				case MODE_JOYSTICK:
 					if(eeprom_data[fi][EEPROM_DATA_VALUE] & 0x01)
 					{ //Slider-
-						tmp_slider_dial_count = slider_dial_ctrl_counter & 0x03;
-						tmp_slider_dial_count++;
-						if(tmp_slider_dial_count > 0x03)
-						{
-							if(joystick_buffer[2] > 0x00)
-							{
-								joystick_buffer[2]--;
-							}
-							else
-							{
-								joystick_buffer[2] = 0xff;
-							}
-							tmp_slider_dial_count = 0x00;
-						}
-						slider_dial_ctrl_counter &= ~(0x03);
-						slider_dial_ctrl_counter |= (tmp_slider_dial_count << 0);
+						flg_input_sd |= 0x01;
 					}
 					if(eeprom_data[fi][EEPROM_DATA_VALUE] & 0x02)
 					{ //Slider+
-						tmp_slider_dial_count = slider_dial_ctrl_counter & 0x0c;
-						tmp_slider_dial_count++;
-						if(tmp_slider_dial_count > 0x03)
-						{
-							if(joystick_buffer[2] < 0xff)
-							{
-								joystick_buffer[2]++;
-							}
-							else
-							{
-								joystick_buffer[2] = 0x00;
-							}
-							tmp_slider_dial_count = 0x00;
-						}
-						slider_dial_ctrl_counter &= ~(0x0c);
-						slider_dial_ctrl_counter |= (tmp_slider_dial_count << 2);
+						flg_input_sd |= 0x02;
 					}
 					if(eeprom_data[fi][EEPROM_DATA_VALUE] & 0x04)
 					{ //Dial-
-						tmp_slider_dial_count = slider_dial_ctrl_counter & 0x30;
-						tmp_slider_dial_count++;
-						if(tmp_slider_dial_count > 0x03)
-						{
-							if(joystick_buffer[3] > 0x00)
-							{
-								joystick_buffer[3]--;
-							}
-							else
-							{
-								joystick_buffer[3] = 0xff;
-							}
-							tmp_slider_dial_count = 0x00;
-						}
-						slider_dial_ctrl_counter &= ~(0x30);
-						slider_dial_ctrl_counter |= (tmp_slider_dial_count << 4);
+						flg_input_sd |= 0x04;
 					}
 					if(eeprom_data[fi][EEPROM_DATA_VALUE] & 0x08)
 					{ //Dial+
-						tmp_slider_dial_count = slider_dial_ctrl_counter & 0xc0;
-						tmp_slider_dial_count++;
-						if(tmp_slider_dial_count > 0x03)
-						{
-							if(joystick_buffer[3] < 0xff)
-							{
-								joystick_buffer[3]++;
-							}
-							else
-							{
-								joystick_buffer[3] = 0x00;
-							}
-							tmp_slider_dial_count = 0x00;
-						}
-						slider_dial_ctrl_counter &= ~(0xc0);
-						slider_dial_ctrl_counter |= (tmp_slider_dial_count << 6);
+						flg_input_sd |= 0x08;
 					}
 
 					joystick_buffer[0] |= eeprom_data[fi][EEPROM_DATA_MODIFIER];
@@ -1012,6 +958,91 @@ void ProcessIO(void)
 	}
    if(!HIDTxHandleBusy(lastTransmission2))
     {
+		if(flg_input_sd & 0x01)
+		{
+			flg_input_sd &= ~(0x01);
+
+			tmp_sd_count = sd_counter & 0x03;
+			tmp_sd_count++;
+			if(tmp_sd_count > SD_COUNTER_MAX)
+			{
+				if(joystick_buffer[2] > 0x00)
+				{
+					joystick_buffer[2]--;
+				}
+				else
+				{
+					joystick_buffer[2] = 0xff;
+				}
+				tmp_sd_count = 0x00;
+			}
+			sd_counter &= ~(0x03);
+			sd_counter |= tmp_sd_count;
+		}
+		if(flg_input_sd & 0x02)
+		{
+			flg_input_sd &= ~(0x02);
+
+			tmp_sd_count = sd_counter & 0x0c;
+			tmp_sd_count++;
+			if(tmp_sd_count > SD_COUNTER_MAX)
+			{
+				if(joystick_buffer[2] < 0xff)
+				{
+					joystick_buffer[2]++;
+				}
+				else
+				{
+					joystick_buffer[2] = 0x00;
+				}
+				tmp_sd_count = 0x00;
+			}
+			sd_counter &= ~(0x0c);
+			sd_counter |= (tmp_sd_count << 2);
+		}
+		if(flg_input_sd & 0x04)
+		{
+			flg_input_sd &= ~(0x04);
+
+			tmp_sd_count = sd_counter & 0x30;
+			tmp_sd_count++;
+			if(tmp_sd_count > SD_COUNTER_MAX)
+			{
+				if(joystick_buffer[3] > 0x00)
+				{
+					joystick_buffer[3]--;
+				}
+				else
+				{
+					joystick_buffer[3] = 0xff;
+				}
+				tmp_sd_count = 0x00;
+			}
+			sd_counter &= ~(0x30);
+			sd_counter |= (tmp_sd_count << 4);
+		}
+		if(flg_input_sd & 0x08)
+		{
+			flg_input_sd &= ~(0x08);
+
+			tmp_sd_count = sd_counter & 0xc0;
+			tmp_sd_count++;
+			if(tmp_sd_count > SD_COUNTER_MAX)
+			{
+				if(joystick_buffer[3] < 0xff)
+				{
+					joystick_buffer[3]++;
+				}
+				else
+				{
+					joystick_buffer[3] = 0x00;
+				}
+				tmp_sd_count = 0x00;
+			}
+			sd_counter &= ~(0xc0);
+			sd_counter |= (tmp_sd_count << 6);
+		}
+
         //Buttons
         joystick_input[0] = joystick_buffer[0];
         joystick_input[1] = joystick_buffer[1];
