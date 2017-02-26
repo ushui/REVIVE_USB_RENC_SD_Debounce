@@ -1,5 +1,7 @@
 // USB HID core
 /*
+ * RENC Debounce S/D ver 1.2 (2016/02/24)
+ *   入力値の増減のアルゴリズムを変更した。
  * RENC Debounce S/D ver 1.1 (2016/01/21)
  *   スライダー/ダイヤル入力の安定性を向上させた。
  * RENC Debounce S/D ver 1.0 (2016/01/20)
@@ -129,7 +131,7 @@ void YourLowPriorityISRCode();
 
 /** VARIABLES ******************************************************/
 #pragma udata
-char c_version[]="SD1.1";
+char c_version[]="SD1.2";
 BYTE mouse_buffer[4];
 BYTE joystick_buffer[4];
 BYTE keyboard_buffer[8]; 
@@ -149,10 +151,6 @@ unsigned int renc_pre_result = 0;
 
 //スライダー/ダイヤル入力フラグ
 unsigned char flg_input_sd = 0;
-//スライダー/ダイヤル入力カウンタ閾値（0～3）
-const unsigned char SD_COUNTER_MAX = 3;
-//スライダー/ダイヤル入力カウンタ（MAXになったら入力値を増やす）
-unsigned char sd_counter = 0;
 
 char mouse_move_up;
 char mouse_move_down;
@@ -425,6 +423,56 @@ unsigned char ToSendDataBuffer[64];
 			
 			button_state_set2 = (unsigned char)(button_state_set_full >> 8);
 			button_state_set1 = (unsigned char)(button_state_set_full);
+			
+			//入力値の増減
+			if(flg_input_sd & 0x01)
+			{
+				flg_input_sd &= ~(0x01);
+				if(joystick_buffer[2] > 0x00)
+				{
+					joystick_buffer[2]--;
+				}
+				else
+				{
+					joystick_buffer[2] = 0xff;
+				}
+			}
+			if(flg_input_sd & 0x02)
+			{
+				flg_input_sd &= ~(0x02);
+				if(joystick_buffer[2] < 0xff)
+				{
+					joystick_buffer[2]++;
+				}
+				else
+				{
+					joystick_buffer[2] = 0x00;
+				}
+			}
+			if(flg_input_sd & 0x04)
+			{
+				flg_input_sd &= ~(0x04);
+				if(joystick_buffer[3] > 0x00)
+				{
+					joystick_buffer[3]--;
+				}
+				else
+				{
+					joystick_buffer[3] = 0xff;
+				}
+			}
+			if(flg_input_sd & 0x08)
+			{
+				flg_input_sd &= ~(0x08);
+				if(joystick_buffer[3] < 0xff)
+				{
+					joystick_buffer[3]++;
+				}
+				else
+				{
+					joystick_buffer[3] = 0x00;
+				}
+			}
 		}
 	}	//This return will be a "retfie", since this is in a #pragma interruptlow section 
 #endif
@@ -956,93 +1004,8 @@ void ProcessIO(void)
 			hid_report_out_flag--;
 		}
 	}
-   if(!HIDTxHandleBusy(lastTransmission2))
+    if(!HIDTxHandleBusy(lastTransmission2))
     {
-		if(flg_input_sd & 0x01)
-		{
-			flg_input_sd &= ~(0x01);
-
-			tmp_sd_count = sd_counter & 0x03;
-			tmp_sd_count++;
-			if(tmp_sd_count > SD_COUNTER_MAX)
-			{
-				if(joystick_buffer[2] > 0x00)
-				{
-					joystick_buffer[2]--;
-				}
-				else
-				{
-					joystick_buffer[2] = 0xff;
-				}
-				tmp_sd_count = 0x00;
-			}
-			sd_counter &= ~(0x03);
-			sd_counter |= tmp_sd_count;
-		}
-		if(flg_input_sd & 0x02)
-		{
-			flg_input_sd &= ~(0x02);
-
-			tmp_sd_count = sd_counter & 0x0c;
-			tmp_sd_count++;
-			if(tmp_sd_count > SD_COUNTER_MAX)
-			{
-				if(joystick_buffer[2] < 0xff)
-				{
-					joystick_buffer[2]++;
-				}
-				else
-				{
-					joystick_buffer[2] = 0x00;
-				}
-				tmp_sd_count = 0x00;
-			}
-			sd_counter &= ~(0x0c);
-			sd_counter |= (tmp_sd_count << 2);
-		}
-		if(flg_input_sd & 0x04)
-		{
-			flg_input_sd &= ~(0x04);
-
-			tmp_sd_count = sd_counter & 0x30;
-			tmp_sd_count++;
-			if(tmp_sd_count > SD_COUNTER_MAX)
-			{
-				if(joystick_buffer[3] > 0x00)
-				{
-					joystick_buffer[3]--;
-				}
-				else
-				{
-					joystick_buffer[3] = 0xff;
-				}
-				tmp_sd_count = 0x00;
-			}
-			sd_counter &= ~(0x30);
-			sd_counter |= (tmp_sd_count << 4);
-		}
-		if(flg_input_sd & 0x08)
-		{
-			flg_input_sd &= ~(0x08);
-
-			tmp_sd_count = sd_counter & 0xc0;
-			tmp_sd_count++;
-			if(tmp_sd_count > SD_COUNTER_MAX)
-			{
-				if(joystick_buffer[3] < 0xff)
-				{
-					joystick_buffer[3]++;
-				}
-				else
-				{
-					joystick_buffer[3] = 0x00;
-				}
-				tmp_sd_count = 0x00;
-			}
-			sd_counter &= ~(0xc0);
-			sd_counter |= (tmp_sd_count << 6);
-		}
-
         //Buttons
         joystick_input[0] = joystick_buffer[0];
         joystick_input[1] = joystick_buffer[1];
